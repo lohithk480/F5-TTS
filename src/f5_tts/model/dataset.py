@@ -11,7 +11,7 @@ from torch import nn
 from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
-from f5_tts.model.modules import MelSpec
+from f5_tts.model.modules import MelSpec, ComplexSpec
 from f5_tts.model.utils import default
 
 
@@ -104,15 +104,13 @@ class CustomDataset(Dataset):
         self.preprocessed_mel = preprocessed_mel
 
         if not preprocessed_mel:
-            self.mel_spectrogram = default(
+            self.spectrogram = default(
                 mel_spec_module,
-                MelSpec(
+                ComplexSpec(
                     n_fft=n_fft,
                     hop_length=hop_length,
                     win_length=win_length,
-                    n_mel_channels=n_mel_channels,
                     target_sample_rate=target_sample_rate,
-                    mel_spec_type=mel_spec_type,
                 ),
             )
 
@@ -154,11 +152,14 @@ class CustomDataset(Dataset):
                 audio = resampler(audio)
 
             # to mel spectrogram
-            mel_spec = self.mel_spectrogram(audio)
-            mel_spec = mel_spec.squeeze(0)  # '1 d t -> d t'
+            spec = self.spectrogram(audio)  # Complex spectrogram
+            magnitude = torch.norm(spec, dim=-1)
+            phase = torch.atan2(spec[..., 1], spec[..., 0])
+            spec = torch.cat([magnitude, phase], dim=1)  # [b, freq*2, frames]
+            spec = spec.squeeze(0)  # [freq*2, frames]
 
         return {
-            "mel_spec": mel_spec,
+            "mel_spec": spec,
             "text": text,
         }
 

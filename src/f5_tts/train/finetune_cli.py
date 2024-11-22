@@ -153,7 +153,7 @@ def main():
         max_samples=args.max_samples,
         grad_accumulation_steps=args.grad_accumulation_steps,
         max_grad_norm=args.max_grad_norm,
-        logger=args.logger,
+        logger="tensorboard",
         wandb_project=args.dataset_name,
         wandb_run_name=args.exp_name,
         wandb_resume_id=wandb_resume_id,

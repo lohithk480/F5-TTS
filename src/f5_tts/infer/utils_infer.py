@@ -25,7 +25,7 @@ from pydub import AudioSegment, silence
 from transformers import pipeline
 from vocos import Vocos
 
-from f5_tts.model import CFM
+from f5_tts.model import CFM, CFM_ComplexSpec
 from f5_tts.model.utils import (
     get_tokenizer,
     convert_char_to_pinyin,
@@ -38,7 +38,7 @@ device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 # -----------------------------------------
 
 target_sample_rate = 24000
-n_mel_channels = 100
+n_mel_channels = 1024
 hop_length = 256
 win_length = 1024
 n_fft = 1024
@@ -216,7 +216,6 @@ def load_model(
     model_cls,
     model_cfg,
     ckpt_path,
-    mel_spec_type=mel_spec_type,
     vocab_file="",
     ode_method=ode_method,
     use_ema=True,
@@ -231,21 +230,21 @@ def load_model(
     print("model : ", ckpt_path, "\n")
 
     vocab_char_map, vocab_size = get_tokenizer(vocab_file, tokenizer)
-    model = CFM(
-        transformer=model_cls(**model_cfg, text_num_embeds=vocab_size, mel_dim=n_mel_channels),
-        mel_spec_kwargs=dict(
+    model = CFM_ComplexSpec(
+        transformer=model_cls(**model_cfg, text_num_embeds=vocab_size),
+        complex_spec_kwargs=dict(
             n_fft=n_fft,
             hop_length=hop_length,
             win_length=win_length,
-            n_mel_channels=n_mel_channels,
             target_sample_rate=target_sample_rate,
-            mel_spec_type=mel_spec_type,
         ),
         odeint_kwargs=dict(
             method=ode_method,
         ),
         vocab_char_map=vocab_char_map,
     ).to(device)
+
+
 
     dtype = torch.float32 if mel_spec_type == "bigvgan" else None
     model = load_checkpoint(model, ckpt_path, device, dtype=dtype, use_ema=use_ema)
@@ -400,7 +399,7 @@ def infer_batch_process(
     gen_text_batches,
     model_obj,
     vocoder,
-    mel_spec_type="vocos",
+    mel_spec_type=None,
     progress=tqdm,
     target_rms=0.1,
     cross_fade_duration=0.15,
@@ -454,20 +453,31 @@ def infer_batch_process(
             )
 
             generated = generated.to(torch.float32)
-            generated = generated[:, ref_audio_len:, :]
-            generated_mel_spec = generated.permute(0, 2, 1)
-            if mel_spec_type == "vocos":
-                generated_wave = vocoder.decode(generated_mel_spec)
-            elif mel_spec_type == "bigvgan":
-                generated_wave = vocoder(generated_mel_spec)
-            if rms < target_rms:
-                generated_wave = generated_wave * rms / target_rms
+            generated = generated[:, ref_audio_len:, :] #batch, frames, freq*2
+            
+            # Create inverse spectrogram transform
+            inverse_spec = torchaudio.transforms.InverseSpectrogram(
+                n_fft=1024,
+                hop_length=256,
+                win_length=1024,
+            ).to(generated.device)
+            
+            # Convert magnitude and phase back to complex
+            magnitude = generated[:, :, :513]
+            phase = generated[:, :, 513:] 
+
+            real = magnitude * torch.cos(phase)  # Real part
+            imag = magnitude * torch.sin(phase)  # Imaginary part
+            complex_spec = torch.stack((real, imag), dim=-1)
+            assert complex_spec.shape[-1] == 2, f"Expected complex_spec last dimension to be 2, but got {complex_spec.shape[-1]}"
+        
+            # Apply inverse STFT
+            generated_wave = inverse_spec(complex_spec)
 
             # wav -> numpy
             generated_wave = generated_wave.squeeze().cpu().numpy()
 
             generated_waves.append(generated_wave)
-            spectrograms.append(generated_mel_spec[0].cpu().numpy())
 
     # Combine all generated waves with cross-fading
     if cross_fade_duration <= 0:
@@ -528,8 +538,6 @@ def remove_silence_for_generated_wav(filename):
 
 
 # save spectrogram
-
-
 def save_spectrogram(spectrogram, path):
     plt.figure(figsize=(12, 4))
     plt.imshow(spectrogram, origin="lower", aspect="auto")

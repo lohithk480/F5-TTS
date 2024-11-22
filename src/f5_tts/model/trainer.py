@@ -3,7 +3,7 @@ from __future__ import annotations
 import gc
 import os
 
-import torch
+import torch 
 import torchaudio
 import wandb
 from accelerate import Accelerator
@@ -14,7 +14,7 @@ from torch.optim.lr_scheduler import LinearLR, SequentialLR
 from torch.utils.data import DataLoader, Dataset, SequentialSampler
 from tqdm import tqdm
 
-from f5_tts.model import CFM
+from f5_tts.model import CFM, CFM_ComplexSpec
 from f5_tts.model.dataset import DynamicBatchSampler, collate_fn
 from f5_tts.model.utils import default, exists
 
@@ -24,7 +24,7 @@ from f5_tts.model.utils import default, exists
 class Trainer:
     def __init__(
         self,
-        model: CFM,
+        model: CFM | CFM_ComplexSpec,
         epochs,
         learning_rate,
         num_warmup_updates=20000,
@@ -195,12 +195,21 @@ class Trainer:
         gc.collect()
         return step
 
-    def train(self, train_dataset: Dataset, num_workers=16, resumable_with_seed: int = None):
+    def train(self, train_dataset: Dataset, num_workers=2, resumable_with_seed: int = None):
         if self.log_samples:
             from f5_tts.infer.utils_infer import cfg_strength, load_vocoder, nfe_step, sway_sampling_coef
+            if isinstance(self.model, CFM):
+                vocoder = load_vocoder(vocoder_name=self.vocoder_name)
+                target_sample_rate = self.accelerator.unwrap_model(self.model).mel_spec.target_sample_rate
+            else:
+                vocoder = None
+                inverse_spec = torchaudio.transforms.InverseSpectrogram(
+                    n_fft=self.accelerator.unwrap_model(self.model).complex_spec.n_fft,
+                    hop_length=self.accelerator.unwrap_model(self.model).complex_spec.hop_length,
+                    win_length=self.accelerator.unwrap_model(self.model).complex_spec.win_length,
+                ).to(self.accelerator.device)
+                target_sample_rate = self.accelerator.unwrap_model(self.model).complex_spec.target_sample_rate
 
-            vocoder = load_vocoder(vocoder_name=self.vocoder_name)
-            target_sample_rate = self.accelerator.unwrap_model(self.model).mel_spec.target_sample_rate
             log_samples_path = f"{self.checkpoint_path}/samples"
             os.makedirs(log_samples_path, exist_ok=True)
 
@@ -254,7 +263,7 @@ class Trainer:
         train_dataloader, self.scheduler = self.accelerator.prepare(
             train_dataloader, self.scheduler
         )  # actual steps = 1 gpu steps / gpus
-        start_step = self.load_checkpoint()
+        start_step = 0
         global_step = start_step
 
         if exists(resumable_with_seed):
@@ -323,7 +332,7 @@ class Trainer:
                 if global_step % (self.save_per_updates * self.grad_accumulation_steps) == 0:
                     self.save_checkpoint(global_step)
 
-                    if self.log_samples and self.accelerator.is_local_main_process:
+                    if self.log_samples and self.accelerator.is_local_main_process and isinstance(self.model, CFM):
                         ref_audio, ref_audio_len = vocoder.decode(batch["mel"][0].unsqueeze(0)), mel_lengths[0]
                         torchaudio.save(
                             f"{log_samples_path}/step_{global_step}_ref.wav", ref_audio.cpu(), target_sample_rate
@@ -344,6 +353,41 @@ class Trainer:
                         torchaudio.save(
                             f"{log_samples_path}/step_{global_step}_gen.wav", gen_audio.cpu(), target_sample_rate
                         )
+                    elif self.log_samples and self.accelerator.is_local_main_process and isinstance(self.model, CFM_ComplexSpec):
+                        # Get original complex spec
+                        orig_spec = batch["mel"][0]  # [freq, time, 2]
+                        ref_audio_len = mel_lengths[0]
+                        
+                        # Convert to complex tensor for inverse
+                        orig_mag = orig_spec[..., 0]
+                        orig_phase = orig_spec[..., 1] 
+                        orig_complex = orig_mag * torch.exp(1j * orig_phase)
+                        
+                        # Generate reference audio
+                        ref_audio = inverse_spec(orig_complex.unsqueeze(0))
+                        torchaudio.save(f"{log_samples_path}/step_{global_step}_ref.wav", ref_audio.cpu(), target_sample_rate)
+
+                        with torch.inference_mode():
+                            generated, _ = self.accelerator.unwrap_model(self.model).sample(
+                                cond=mel_spec[0][:ref_audio_len].unsqueeze(0),
+                                text=[text_inputs[0] + [" "] + text_inputs[0]],
+                                duration=ref_audio_len * 2,
+                                steps=nfe_step,
+                                cfg_strength=cfg_strength,
+                                sway_sampling_coef=sway_sampling_coef,
+                            )
+
+                            # Split generated into mag and phase
+                            freq_bins = generated.shape[1] // 2
+                            gen_mag = generated[:, :freq_bins, ref_audio_len:]
+                            gen_phase = generated[:, freq_bins:, ref_audio_len:]
+                            
+                            # Convert to complex tensor
+                            gen_complex = gen_mag * torch.exp(1j * gen_phase)
+                            
+                            # Generate audio
+                            gen_audio = inverse_spec(gen_complex)
+                            torchaudio.save(f"{log_samples_path}/step_{global_step}_gen.wav", gen_audio.cpu(), target_sample_rate)
 
                 if global_step % self.last_per_steps == 0:
                     self.save_checkpoint(global_step, last=True)

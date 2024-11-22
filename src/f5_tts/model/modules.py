@@ -100,6 +100,26 @@ def get_vocos_mel_spectrogram(
     mel = mel.clamp(min=1e-5).log()
     return mel
 
+def get_spectrogram(waveform, n_fft=1024, hop_length=256, win_length=1024):
+   if len(waveform.shape) == 3:
+       waveform = waveform.squeeze(1)  # 'b 1 nw -> b nw'
+   assert len(waveform.shape) == 2
+
+   spec_transform = torchaudio.transforms.Spectrogram(
+       n_fft=n_fft,
+       hop_length=hop_length, 
+       win_length=win_length,
+       power=None,  # This returns complex output
+       center=True,
+       normalized=False
+   ).to(waveform.device)
+
+   complex_spec = spec_transform(waveform)
+
+    #[batch_size, n_fft//2 + 1, time_frames]
+   return complex_spec
+
+
 
 class MelSpec(nn.Module):
     def __init__(
@@ -139,8 +159,45 @@ class MelSpec(nn.Module):
             hop_length=self.hop_length,
             win_length=self.win_length,
         )
-
+        #[batch_size, n_mel_channels, time_frames]
         return mel
+
+class ComplexSpec(nn.Module):
+    def __init__(
+        self,
+        n_fft=1024,
+        hop_length=256,
+        win_length=1024,
+        target_sample_rate=24_000
+    ):
+        super().__init__()
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.win_length = win_length
+        self.extractor = get_spectrogram
+        self.register_buffer("dummy", torch.tensor(0), persistent=False)
+        self.target_sample_rate = target_sample_rate
+
+    def forward(self, wav):
+        if self.dummy.device != wav.device:
+            self.to(wav.device)
+            
+        complex_spec = self.extractor(
+            waveform=wav,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            win_length=self.win_length,
+        )
+        
+        # Split into magnitude and phase
+        magnitude = torch.abs(complex_spec)
+        phase = torch.angle(complex_spec)
+        
+        # Stack along new dimension
+        mag_phase_tensor = torch.stack([magnitude, phase], dim=-1)
+        
+        #[batch_size, n_fft//2 + 1, time_frames, 2]
+        return mag_phase_tensor
 
 
 # sinusoidal position embedding

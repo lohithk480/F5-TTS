@@ -2,14 +2,14 @@
 
 from importlib.resources import files
 
-from f5_tts.model import CFM, DiT, Trainer, UNetT
+from f5_tts.model import CFM, CFM_ComplexSpec, DiT, Trainer, UNetT
 from f5_tts.model.dataset import load_dataset
 from f5_tts.model.utils import get_tokenizer
 
 # -------------------------- Dataset Settings --------------------------- #
 
-target_sample_rate = 24000
-n_mel_channels = 100
+target_sample_rate = 16000
+n_mel_channels = 1026 # Changed from 100 to 1026 to match the text_dim in the model this ensures predicted spec has the same shape as the original/flow spec
 hop_length = 256
 win_length = 1024
 n_fft = 1024
@@ -17,7 +17,7 @@ mel_spec_type = "vocos"  # 'vocos' or 'bigvgan'
 
 tokenizer = "pinyin"  # 'pinyin', 'char', or 'custom'
 tokenizer_path = None  # if tokenizer = 'custom', define the path to the tokenizer you want to use (should be vocab.txt)
-dataset_name = "Emilia_ZH_EN"
+dataset_name = "mls_english"
 
 # -------------------------- Training Settings -------------------------- #
 
@@ -40,7 +40,7 @@ last_per_steps = 5000  # save last checkpoint per steps
 if exp_name == "F5TTS_Base":
     wandb_resume_id = None
     model_cls = DiT
-    model_cfg = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
+    model_cfg = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=1026, conv_layers=4) #Changed text_dim to 1026
 elif exp_name == "E2TTS_Base":
     wandb_resume_id = None
     model_cls = UNetT
@@ -66,9 +66,15 @@ def main():
         mel_spec_type=mel_spec_type,
     )
 
-    model = CFM(
+    complex_spec_kwargs = dict(
+        n_fft=1024,           # FFT size
+        hop_length=256,       # Number of samples between successive frames
+        win_length=1024,      # Window size
+    )
+
+    model = CFM_ComplexSpec(
         transformer=model_cls(**model_cfg, text_num_embeds=vocab_size, mel_dim=n_mel_channels),
-        mel_spec_kwargs=mel_spec_kwargs,
+        complex_spec_kwargs=complex_spec_kwargs,
         vocab_char_map=vocab_char_map,
     )
 

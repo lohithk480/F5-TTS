@@ -75,12 +75,20 @@ class TextEmbedding(nn.Module):
 class InputEmbedding(nn.Module):
     def __init__(self, mel_dim, text_dim, out_dim):
         super().__init__()
-        self.proj = nn.Linear(mel_dim * 2 + text_dim, out_dim)
+        print(f"mel_dim: {mel_dim}")
+        print(f"text_dim: {text_dim}")
+        print(f"out_dim: {out_dim}")
+        self.proj = nn.Linear(text_dim * 3, out_dim)
         self.conv_pos_embed = ConvPositionEmbedding(dim=out_dim)
 
     def forward(self, x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"], drop_audio_cond=False):  # noqa: F722
         if drop_audio_cond:  # cfg for cond audio
             cond = torch.zeros_like(cond)
+
+        # Check tensor shapes before concatenation
+        #print(x.shape)  # Should be [1, 1026, frames]
+        #print(cond.shape)  # Should be [1, 1026, frames]
+        #print(text_embed.shape)  # Should be [1, 1026, frames]
 
         x = self.proj(torch.cat((x, cond, text_embed), dim=-1))
         x = self.conv_pos_embed(x) + x
@@ -102,7 +110,7 @@ class DiT(nn.Module):
         ff_mult=4,
         mel_dim=100,
         text_num_embeds=256,
-        text_dim=None,
+        text_dim=1026, 
         conv_layers=0,
         long_skip_connection=False,
     ):
@@ -111,6 +119,7 @@ class DiT(nn.Module):
         self.time_embed = TimestepEmbedding(dim)
         if text_dim is None:
             text_dim = mel_dim
+        print(f"text_dim: {text_dim}")
         self.text_embed = TextEmbedding(text_num_embeds, text_dim, conv_layers=conv_layers)
         self.input_embed = InputEmbedding(mel_dim, text_dim, dim)
 

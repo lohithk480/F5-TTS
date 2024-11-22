@@ -28,7 +28,7 @@ device = f"cuda:{accelerator.process_index}"
 # --------------------- Dataset Settings -------------------- #
 
 target_sample_rate = 24000
-n_mel_channels = 100
+n_mel_channels = 1024
 hop_length = 256
 win_length = 1024
 n_fft = 1024

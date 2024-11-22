@@ -120,13 +120,13 @@ if vocoder_name == "vocos":
 elif vocoder_name == "bigvgan":
     vocoder_local_path = "../checkpoints/bigvgan_v2_24khz_100band_256x"
 
-vocoder = load_vocoder(vocoder_name=mel_spec_type, is_local=args.load_vocoder_from_local, local_path=vocoder_local_path)
-
+#vocoder = load_vocoder(vocoder_name=mel_spec_type, is_local=args.load_vocoder_from_local, local_path=vocoder_local_path)
+vocoder = None
 
 # load models
 if model == "F5-TTS":
     model_cls = DiT
-    model_cfg = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
+    model_cfg = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=1026, conv_layers=4) # Changed text_dim from 512 to 1026 to match the text_dim in the model
     if ckpt_file == "":
         if vocoder_name == "vocos":
             repo_name = "F5-TTS"
@@ -153,7 +153,7 @@ elif model == "E2-TTS":
 
 
 print(f"Using {model}...")
-ema_model = load_model(model_cls, model_cfg, ckpt_file, mel_spec_type=mel_spec_type, vocab_file=vocab_file)
+ema_model = load_model(model_cls, model_cfg, ckpt_file, vocab_file=vocab_file)
 
 
 def main_process(ref_audio, ref_text, text_gen, model_obj, mel_spec_type, remove_silence, speed):
