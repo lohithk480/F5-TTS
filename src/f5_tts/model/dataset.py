@@ -10,7 +10,7 @@ from datasets import load_from_disk
 from torch import nn
 from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
-
+import matplotlib.pyplot as plt
 from f5_tts.model.modules import MelSpec, ComplexSpec
 from f5_tts.model.utils import default
 
@@ -259,6 +259,7 @@ def load_dataset(
         with open(f"{rel_data_path}/duration.json", "r", encoding="utf-8") as f:
             data_dict = json.load(f)
         durations = data_dict["duration"]
+        
         train_dataset = CustomDataset(
             train_dataset,
             durations=durations,

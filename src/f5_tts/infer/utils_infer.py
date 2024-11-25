@@ -44,7 +44,7 @@ win_length = 1024
 n_fft = 1024
 mel_spec_type = "vocos"
 target_rms = 0.1
-cross_fade_duration = 0.15
+cross_fade_duration = 0
 ode_method = "euler"
 nfe_step = 32  # 16, 32
 cfg_strength = 2.0
@@ -461,21 +461,82 @@ def infer_batch_process(
                 hop_length=256,
                 win_length=1024,
             ).to(generated.device)
+
             
             # Convert magnitude and phase back to complex
             magnitude = generated[:, :, :513]
             phase = generated[:, :, 513:] 
 
+                        # Plot the phase values
+            plt.figure(figsize=(12, 4))
+            plt.imshow(phase[0].cpu().numpy().T, aspect='auto', origin='lower')
+            plt.colorbar(format='%+2.0f rad')
+            plt.title('Phase Values')
+            plt.xlabel('Time')
+            plt.ylabel('Frequency')
+            plt.tight_layout()
+            plt.savefig(f'phase_values_{i}.png')
+            plt.close()
+
             real = magnitude * torch.cos(phase)  # Real part
             imag = magnitude * torch.sin(phase)  # Imaginary part
-            complex_spec = torch.stack((real, imag), dim=-1)
-            assert complex_spec.shape[-1] == 2, f"Expected complex_spec last dimension to be 2, but got {complex_spec.shape[-1]}"
-        
+            complex_spec = torch.complex(real, imag)
+            assert complex_spec.dtype in [torch.complex64, torch.complex128], f"Expected complex dtype but got {complex_spec.dtype}"
+
+            mel_filter = torchaudio.transforms.MelSpectrogram(
+                sample_rate=16000,  # Set your sample rate
+                n_mels=100,         # Set the number of mel bands 
+                win_length=1024,
+                hop_length=256,
+                n_fft=1024,
+            ).to(generated.device)
+
+            # Apply the Mel filter to convert to mel-spectrogram
+            mel_spectrogram = mel_filter(magnitude)
+
+            print(mel_spectrogram[0].shape)
+
+            # Plotting the mel-spectrogram
+            plt.figure(figsize=(12, 4))
+            plt.imshow(magnitude[0].cpu().numpy().T, aspect='auto', origin='lower')
+            plt.colorbar(format='%+2.0f dB')
+            plt.title('Mel Spectrogram')
+            plt.xlabel('Time')
+            plt.ylabel('Mel Frequency')
+            plt.tight_layout()
+            plt.savefig(f'mel_spectrogram_{i}.png')
+            plt.close()
+
+           
+            complex_spec = complex_spec.permute(0, 2, 1)
+
+
             # Apply inverse STFT
             generated_wave = inverse_spec(complex_spec)
 
+            # Create mel spectrogram from the generated wave
+            mel_spectrogram = mel_filter(generated_wave)
+            
+            # Convert to decibels
+            mel_spectrogram_db = torchaudio.transforms.AmplitudeToDB()(mel_spectrogram)
+
+            # Plot the mel spectrogram
+            plt.figure(figsize=(12, 4))
+            plt.imshow(mel_spectrogram_db[0].cpu().numpy(), aspect='auto', origin='lower')
+            plt.colorbar(format='%+2.0f dB')
+            plt.title('Mel Spectrogram')
+            plt.xlabel('Time')
+            plt.ylabel('Mel Frequency')
+            plt.tight_layout()
+            plt.savefig(f'mel_spectrogram_db_{i}.png')
+            plt.close()
+
             # wav -> numpy
             generated_wave = generated_wave.squeeze().cpu().numpy()
+
+
+
+            print(generated_wave.shape)
 
             generated_waves.append(generated_wave)
 
@@ -517,9 +578,9 @@ def infer_batch_process(
             final_wave = new_wave
 
     # Create a combined spectrogram
-    combined_spectrogram = np.concatenate(spectrograms, axis=1)
+    #combined_spectrogram = np.concatenate(spectrograms, axis=1)
 
-    return final_wave, target_sample_rate, combined_spectrogram
+    return final_wave, target_sample_rate, None
 
 
 # remove silence from generated wav

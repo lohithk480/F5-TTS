@@ -20,6 +20,46 @@ from f5_tts.model.utils import default, exists
 
 # trainer
 
+def log_training_stats(model, loss, optimizer, step, writer, write_output: bool = False):
+    """Log comprehensive training statistics."""
+    stats = {}
+
+    # Loss stats
+    stats["loss"] = loss.item()
+
+    # Gradient stats
+    grad_norm = 0
+    grad_max = 0
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_norm += param.grad.data.norm(2).item() ** 2
+            grad_max = max(grad_max, param.grad.data.abs().max().item())
+            stats[f"grad_norm/{name}"] = param.grad.data.norm(2).item()
+
+    stats["grad_norm_total"] = grad_norm ** 0.5 
+    stats["grad_max"] = grad_max
+
+    # Parameter stats
+    param_norm = 0
+    param_max = 0
+    for name, param in model.named_parameters():
+        param_norm += param.data.norm(2).item() ** 2
+        param_max = max(param_max, param.data.abs().max().item())
+        stats[f"param_norm/{name}"] = param.data.norm(2).item()
+
+    stats["param_norm_total"] = param_norm ** 0.5
+    stats["param_max"] = param_max
+
+    # Optimizer stats
+    stats["learning_rate"] = optimizer.param_groups[0]["lr"]
+
+    # Log all stats
+    if write_output:
+        for name, value in stats.items():
+            writer.add_scalar(name, value, step)
+    
+    return stats
+
 
 class Trainer:
     def __init__(
@@ -37,7 +77,7 @@ class Trainer:
         max_grad_norm=1.0,
         noise_scheduler: str | None = None,
         duration_predictor: torch.nn.Module | None = None,
-        logger: str | None = "wandb",  # "wandb" | "tensorboard" | None
+        logger: str | None = "tensorboard",  # "wandb" | "tensorboard" | None
         wandb_project="test_e2-tts",
         wandb_run_name="test_run",
         wandb_resume_id: str = None,
@@ -263,7 +303,7 @@ class Trainer:
         train_dataloader, self.scheduler = self.accelerator.prepare(
             train_dataloader, self.scheduler
         )  # actual steps = 1 gpu steps / gpus
-        start_step = 0
+        start_step = self.load_checkpoint()
         global_step = start_step
 
         if exists(resumable_with_seed):
@@ -292,7 +332,7 @@ class Trainer:
                     unit="step",
                     disable=not self.accelerator.is_local_main_process,
                 )
-
+            #torch.autograd.set_detect_anomaly(True)
             for batch in progress_bar:
                 with self.accelerator.accumulate(self.model):
                     text_inputs = batch["text"]

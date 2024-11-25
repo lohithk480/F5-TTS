@@ -357,8 +357,13 @@ class CFM_ComplexSpec(nn.Module):
         # raw wave
 
         if cond.ndim == 2:
-            cond = self.mel_spec(cond)
-            cond = cond.permute(0, 2, 1)
+            cond = self.complex_spec(cond)  # [B, freq_bins, time_frames, 2]
+            magnitude = cond[..., 0]        # [B, freq_bins, time_frames]
+            phase = cond[..., 1]            # [B, freq_bins, time_frames]
+            
+            # Stack magnitude and phase along the frequency dimension
+            cond = torch.cat([magnitude, phase], dim=1)  # [B, freq_bins*2, time_frames]
+            cond = cond.permute(0, 2, 1)    # [B, time_frames, freq_bins*2]
             assert cond.shape[-1] == self.num_channels
 
         cond = cond.to(next(self.parameters()).dtype)
