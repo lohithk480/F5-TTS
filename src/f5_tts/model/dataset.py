@@ -300,6 +300,7 @@ def load_dataset(
 
 def collate_fn(batch):
     mel_specs = [item["mel_spec"].squeeze(0) for item in batch]
+    ref_audio_paths = [item["audio_path"] for item in batch]
     mel_lengths = torch.LongTensor([spec.shape[-1] for spec in mel_specs])
     max_mel_length = mel_lengths.amax()
 
@@ -319,4 +320,5 @@ def collate_fn(batch):
         mel_lengths=mel_lengths,
         text=text,
         text_lengths=text_lengths,
+        ref_audio_paths=ref_audio_paths,
     )
