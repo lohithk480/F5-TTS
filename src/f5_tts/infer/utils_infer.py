@@ -37,7 +37,7 @@ device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 
 # -----------------------------------------
 
-target_sample_rate = 24000
+target_sample_rate = 16000
 n_mel_channels = 1024
 hop_length = 256
 win_length = 1024
@@ -453,92 +453,50 @@ def infer_batch_process(
             )
 
             generated = generated.to(torch.float32)
-            generated = generated[:, ref_audio_len:, :] #batch, frames, freq*2
+            print(f"generated.shape {generated.shape}")
+            generated = generated[:, ref_audio_len:, :]
+            generated = generated.permute(0, 2, 1)
+
+            print(f"generated.shape {generated.shape}")
             
             # Create inverse spectrogram transform
             inverse_spec = torchaudio.transforms.InverseSpectrogram(
-                n_fft=1024,
-                hop_length=256,
-                win_length=1024,
+                n_fft=n_fft,
+                hop_length=hop_length,
+                win_length=win_length,
             ).to(generated.device)
 
-            
-            # Convert magnitude and phase back to complex
-            magnitude = generated[:, :, :513]
-            phase = generated[:, :, 513:] 
+            generated = generated.squeeze(0) #Remove batch dimension
 
-                        # Plot the phase values
-            plt.figure(figsize=(12, 4))
-            plt.imshow(phase[0].cpu().numpy().T, aspect='auto', origin='lower')
-            plt.colorbar(format='%+2.0f rad')
-            plt.title('Phase Values')
-            plt.xlabel('Time')
-            plt.ylabel('Frequency')
-            plt.tight_layout()
-            plt.savefig(f'phase_values_{i}.png')
-            plt.close()
+            # Convert magnitude and phase to complex spectrogram
+            log_magnitude = generated[:513]
+            magnitude = torch.exp(log_magnitude)
+            phase = generated[513:]
+            complex_spectrogram = torch.complex(
+                magnitude * torch.cos(phase),
+                magnitude * torch.sin(phase)
+            )
 
-            real = magnitude * torch.cos(phase)  # Real part
-            imag = magnitude * torch.sin(phase)  # Imaginary part
-            complex_spec = torch.complex(real, imag)
-            assert complex_spec.dtype in [torch.complex64, torch.complex128], f"Expected complex dtype but got {complex_spec.dtype}"
+            complex_spectrogram = complex_spectrogram.unsqueeze(0) #Add back in batch dimension
 
-            mel_filter = torchaudio.transforms.MelSpectrogram(
-                sample_rate=16000,  # Set your sample rate
-                n_mels=100,         # Set the number of mel bands 
-                win_length=1024,
-                hop_length=256,
-                n_fft=1024,
-            ).to(generated.device)
-
-            # Apply the Mel filter to convert to mel-spectrogram
-            mel_spectrogram = mel_filter(magnitude)
-
-            print(mel_spectrogram[0].shape)
-
-            # Plotting the mel-spectrogram
-            plt.figure(figsize=(12, 4))
-            plt.imshow(magnitude[0].cpu().numpy().T, aspect='auto', origin='lower')
-            plt.colorbar(format='%+2.0f dB')
-            plt.title('Mel Spectrogram')
-            plt.xlabel('Time')
-            plt.ylabel('Mel Frequency')
-            plt.tight_layout()
-            plt.savefig(f'mel_spectrogram_{i}.png')
-            plt.close()
-
-           
-            complex_spec = complex_spec.permute(0, 2, 1)
-
+            print(f"complex_spectrogram.shape {complex_spectrogram.shape}")
 
             # Apply inverse STFT
-            generated_wave = inverse_spec(complex_spec)
-
-            # Create mel spectrogram from the generated wave
-            mel_spectrogram = mel_filter(generated_wave)
+            generated_wave = inverse_spec(complex_spectrogram)
+            print(f"inverse_spectrogram.shape: {generated_wave.shape}")
             
-            # Convert to decibels
-            mel_spectrogram_db = torchaudio.transforms.AmplitudeToDB()(mel_spectrogram)
-
-            # Plot the mel spectrogram
-            plt.figure(figsize=(12, 4))
-            plt.imshow(mel_spectrogram_db[0].cpu().numpy(), aspect='auto', origin='lower')
-            plt.colorbar(format='%+2.0f dB')
-            plt.title('Mel Spectrogram')
-            plt.xlabel('Time')
-            plt.ylabel('Mel Frequency')
-            plt.tight_layout()
-            plt.savefig(f'mel_spectrogram_db_{i}.png')
-            plt.close()
-
+            # Save the generated wave to a file
+            generated_wave = generated_wave.cpu()
+            torchaudio.save('inference_output.wav', generated_wave, sample_rate=16000)
             # wav -> numpy
-            generated_wave = generated_wave.squeeze().cpu().numpy()
-
-
+            generated_wave = generated_wave.numpy()
 
             print(generated_wave.shape)
 
-            generated_waves.append(generated_wave)
+            #Flatten to single dimension
+            generated_wave_flattened = generated_wave.flatten()
+
+            generated_waves.append(generated_wave_flattened)
 
     # Combine all generated waves with cross-fading
     if cross_fade_duration <= 0:

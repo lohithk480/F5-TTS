@@ -85,7 +85,7 @@ class CustomDataset(Dataset):
         self,
         custom_dataset: Dataset,
         durations=None,
-        target_sample_rate=24_000,
+        target_sample_rate=16_000,
         hop_length=256,
         n_mel_channels=100,
         n_fft=1024,
@@ -153,12 +153,14 @@ class CustomDataset(Dataset):
 
             # to mel spectrogram
             spec = self.spectrogram(audio)  # Complex spectrogram
-            magnitude = torch.norm(spec, dim=-1)
-            phase = torch.atan2(spec[..., 1], spec[..., 0])
-            spec = torch.cat([magnitude, phase], dim=1)  # [b, freq*2, frames]
-            spec = spec.squeeze(0)  # [freq*2, frames]
+            spec = spec.squeeze(0) #Remove batch dimension
+            spec = torch.cat([spec[..., 0], spec[..., 1]], dim=0)
+
+
+            print(f"spec.shape: {spec.shape}") # [freq*2, frames]
 
         return {
+            "audio_path": audio_path,
             "mel_spec": spec,
             "text": text,
         }
@@ -228,7 +230,6 @@ class DynamicBatchSampler(Sampler[list[int]]):
 
 
 # Load dataset
-
 
 def load_dataset(
     dataset_name: str,

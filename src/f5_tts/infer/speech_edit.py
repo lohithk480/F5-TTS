@@ -15,7 +15,7 @@ device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 
 # --------------------- Dataset Settings -------------------- #
 
-target_sample_rate = 24000
+target_sample_rate = 16000
 n_mel_channels = 100
 hop_length = 256
 win_length = 1024

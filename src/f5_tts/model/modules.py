@@ -188,13 +188,29 @@ class ComplexSpec(nn.Module):
             hop_length=self.hop_length,
             win_length=self.win_length,
         )
+
+        print(f"self.n_fft: {self.n_fft}")
+        print(f"self.hop_length: {self.hop_length}")
+        print(f"self.win_length: {self.win_length}")
+
+        print(f"complex_spec.shape: {complex_spec.shape}")
+        print(f"complex_spec.dtype: {complex_spec.dtype}")
         
         # Split into magnitude and phase
         magnitude = torch.abs(complex_spec)
+        print(f"magnitude vals: {magnitude[0, :10, :10]}")
+        magnitude = torch.log(magnitude + 1e-5) 
         phase = torch.angle(complex_spec)
+
+
+        print(f"magnitude.shape: {magnitude.shape}, phase.shape: {phase.shape}")
+        assert magnitude.shape == phase.shape
+        assert magnitude.shape[1] == self.n_fft//2 + 1
+        assert phase.shape[1] == self.n_fft//2 + 1
         
         # Stack along new dimension
         mag_phase_tensor = torch.stack([magnitude, phase], dim=-1)
+        print(f"mag_phase_tensor.shape: {mag_phase_tensor.shape}")
         
         #[batch_size, n_fft//2 + 1, time_frames, 2]
         return mag_phase_tensor
