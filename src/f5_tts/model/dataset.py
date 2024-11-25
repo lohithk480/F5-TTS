@@ -157,7 +157,7 @@ class CustomDataset(Dataset):
             spec = torch.cat([spec[..., 0], spec[..., 1]], dim=0)
 
 
-            print(f"spec.shape: {spec.shape}") # [freq*2, frames]
+            #print(f"spec.shape: {spec.shape}") # [freq*2, frames]
 
         return {
             "audio_path": audio_path,

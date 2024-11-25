@@ -389,11 +389,11 @@ class Trainer:
                                 )
 
                             generated = generated.to(torch.float32)
-                            print(f"generated.shape {generated.shape}")
+                            #print(f"generated.shape {generated.shape}")
                             generated = generated[:, ref_audio_len:, :]
                             generated = generated.permute(0, 2, 1)
 
-                            print(f"generated.shape {generated.shape}")
+                            #print(f"generated.shape {generated.shape}")
                             
                             # Create inverse spectrogram transform
                             inverse_spec = torchaudio.transforms.InverseSpectrogram(
@@ -415,11 +415,11 @@ class Trainer:
 
                             complex_spectrogram = complex_spectrogram.unsqueeze(0) #Add back in batch dimension
 
-                            print(f"complex_spectrogram.shape {complex_spectrogram.shape}")
+                            #print(f"complex_spectrogram.shape {complex_spectrogram.shape}")
 
                             # Apply inverse STFT
                             generated_wave = inverse_spec(complex_spectrogram)
-                            print(f"inverse_spectrogram.shape: {generated_wave.shape}")
+                            #print(f"inverse_spectrogram.shape: {generated_wave.shape}")
                             
                             # Save the generated wave to a file
                             generated_wave = generated_wave.cpu()
