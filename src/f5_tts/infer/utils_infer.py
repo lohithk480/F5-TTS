@@ -453,7 +453,6 @@ def infer_batch_process(
             )
 
             generated = generated.to(torch.float32)
-            print(f"generated.shape {generated.shape}")
             generated = generated[:, ref_audio_len:, :]
             generated = generated.permute(0, 2, 1)
 
@@ -480,6 +479,8 @@ def infer_batch_process(
             complex_spectrogram = complex_spectrogram.unsqueeze(0) #Add back in batch dimension
 
             print(f"complex_spectrogram.shape {complex_spectrogram.shape}")
+
+            assert complex_spectrogram.dtype == torch.complex64
 
             # Apply inverse STFT
             generated_wave = inverse_spec(complex_spectrogram)

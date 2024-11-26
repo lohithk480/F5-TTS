@@ -514,16 +514,22 @@ class CFM_ComplexSpec(nn.Module):
         # mel is x1
         x1 = inp
 
+
         # x0 is gaussian noise
         x0 = torch.randn_like(x1)
 
         # time step
         time = torch.rand((batch,), dtype=dtype, device=self.device)
 
+
         # sample xt (φ_t(x) in the paper)
         t = time.unsqueeze(-1).unsqueeze(-1)
         φ = (1 - t) * x0 + t * x1
         flow = x1 - x0
+
+
+
+
 
         # only predict what is within the random mask span for infilling
         cond = torch.where(rand_span_mask[..., None], torch.zeros_like(x1), x1)
@@ -541,6 +547,33 @@ class CFM_ComplexSpec(nn.Module):
         pred = self.transformer(
             x=φ, cond=cond, text=text, time=time, drop_audio_cond=drop_audio_cond, drop_text=drop_text
         )
+
+
+        loss_component_logging = False
+        #Log Magnitude and Phase Loss Contributions
+        if loss_component_logging:
+            magnitude = φ[..., :self.num_channels//2]
+            print(f"magnitude.shape: {magnitude.shape}")
+            phase = φ[..., self.num_channels//2:]
+            print(f"phase.shape: {phase.shape}")
+
+            pred_magnitude = pred[..., :self.num_channels//2]
+            print(f"pred_magnitude.shape: {pred_magnitude.shape}")
+            pred_phase = pred[..., self.num_channels//2:]
+            print(f"pred_phase.shape: {pred_phase.shape}")
+
+            mag_loss = F.mse_loss(pred_magnitude, magnitude, reduction="none")
+            phase_loss = F.mse_loss(pred_phase, phase, reduction="none")
+            mag_loss = mag_loss[rand_span_mask]
+            phase_loss = phase_loss[rand_span_mask]
+            mag_loss = mag_loss.mean()
+            phase_loss = phase_loss.mean()
+            print("=======================")
+            print(f"mag_loss: {mag_loss}")
+            print(f"phase_loss: {phase_loss}")
+            print("=======================")
+
+
 
         #print(f"pred.shape: {pred.shape}")
         #print(f"flow.shape: {flow.shape}")
